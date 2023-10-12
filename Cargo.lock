@@ -1208,7 +1208,9 @@ name = "webring"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "rand",
  "rusqlite",
+ "serde_json",
  "tokio",
 ]
 
