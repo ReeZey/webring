@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
         CREATE TABLE IF NOT EXISTS "sites" (
             "id"	INTEGER,
             "domain"	TEXT UNIQUE,
-            "https"	INTEGER,
+            "link"	TEXT,
             PRIMARY KEY("id" AUTOINCREMENT)
         );
         "#, []
