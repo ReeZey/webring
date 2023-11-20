@@ -1,8 +1,8 @@
 use actix_web::{get, web, App, HttpServer, HttpResponse};
 use rand::Rng;
 use rusqlite::Connection;
-
-use std::{io::Result, collections::HashMap};
+use serde_json::{Value, json};
+use std::io::Result;
 
 #[get("/{name}/{action}")]
 async fn action(param: web::Path<(String, String)>) -> HttpResponse {
@@ -24,7 +24,7 @@ async fn action(param: web::Path<(String, String)>) -> HttpResponse {
         }
     };
 
-    let next_id;
+    let mut next_id;
 
     match action.as_str() {
         "next" => {
@@ -41,17 +41,29 @@ async fn action(param: web::Path<(String, String)>) -> HttpResponse {
         }
         "random" => {
             let mut rng = rand::thread_rng();
+
             next_id = rng.gen_range(1..sites_count+1);
+
+            for _ in 0..10 {
+                if next_id != id {
+                    break;
+                }
+                next_id = rng.gen_range(1..sites_count+1);
+            }
         }
         _ => {
-            return HttpResponse::BadRequest().body("bad action");
+            return HttpResponse::BadRequest().body("bad action\nactions available: next, previous, random");
         }
     }
 
-    let mut stmt = db.prepare("SELECT link FROM sites WHERE id = ?1").unwrap();
+    let mut stmt = db.prepare("SELECT link, domain FROM sites WHERE id = ?1").unwrap();
     let mut rows = stmt.query([next_id]).unwrap();
 
-    let next_url: String = rows.next().unwrap().unwrap().get_unwrap(0);
+    let row = rows.next().unwrap().unwrap();
+    let next_url: String = row.get_unwrap(0);
+    let domain: String = row.get_unwrap(1);
+
+    println!("[{}] {} > {}", action, site, domain);
 
     return HttpResponse::Found().append_header(("Location", next_url.clone())).body(format!("next stop: {}", next_url));
 }
@@ -59,23 +71,35 @@ async fn action(param: web::Path<(String, String)>) -> HttpResponse {
 #[get("/links")]
 async fn links() -> HttpResponse {
     let db = Connection::open("sites.db").unwrap();
-    let mut stmt = db.prepare("SELECT id, domain, link FROM sites").unwrap();
+    let mut stmt = db.prepare("SELECT domain, link FROM sites").unwrap();
     let mut rows = stmt.query([]).unwrap();
 
-    let mut sites: HashMap<usize, (String, String)> = HashMap::new();
+    let mut sites: Vec<Value> = vec![];
 
     while let Some(row) = rows.next().unwrap() {
-        let id: usize = row.get(0).unwrap();
-        let domain: String = row.get(1).unwrap();
-        let link: String = row.get(2).unwrap();
-        sites.insert(id, (domain, link));
+        let domain: String = row.get(0).unwrap();
+        let link: String = row.get(1).unwrap();
+
+        let site_info: Value = json!({
+            "alias": domain,
+            "link": link
+        });
+
+        sites.push(site_info);
     }
 
     return HttpResponse::Ok().json(sites);
 }
 
+#[get("/")]
+async fn start_page() -> HttpResponse {
+    return HttpResponse::Ok().body("im just a ring");
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    println!("hej världen");
+
     let db = Connection::open("sites.db").unwrap();
     db.execute(
         r#"
@@ -92,8 +116,9 @@ async fn main() -> Result<()> {
         App::new()
             .service(action)
             .service(links)
+            .service(start_page)
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind(("0.0.0.0", 666))?
     .run()
     .await
 }
