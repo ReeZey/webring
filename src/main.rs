@@ -92,15 +92,12 @@ async fn action(param: web::Path<(String, String)>) -> HttpResponse {
             },
         };
 
-        //update
-        if updated_down != end_down {
-            let mut stmt = db.prepare("UPDATE sites SET 'down' = ?1, 'last_checked' = ?2 WHERE site = ?3").unwrap();
-            stmt.execute([
-                updated_down.to_string(), 
-                current_unix.to_string(),
-                end_site.clone()
-            ]).unwrap();
-        }
+        let mut stmt = db.prepare("UPDATE sites SET 'down' = ?1, 'last_checked' = ?2 WHERE site = ?3").unwrap();
+        stmt.execute([
+            updated_down.to_string(), 
+            current_unix.to_string(),
+            end_site.clone()
+        ]).unwrap();
     }
 
     if end_down {
