@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::{io::Result, time::{SystemTime, UNIX_EPOCH}};
 
 const HOST_URL: &str = "http://localhost:666";//"https://ring.reez.it";
-const CHECK_INTERVAL: u128 = 60_000 * 10;
+const CHECK_INTERVAL: u128 = 60_1000 * 60;
 
 #[get("/{name}/{action}")]
 async fn action(param: web::Path<(String, String)>) -> HttpResponse {
@@ -72,7 +72,7 @@ async fn action(param: web::Path<(String, String)>) -> HttpResponse {
     
     //check if site is alive
     println!("[{}] {} > {}", action, start_site, end_site);
-
+    
     let current_unix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
     let mut stmt = db.prepare("INSERT INTO logs ('from', 'to', 'using', 'timestamp') VALUES (?1, ?2, ?3, ?4)").unwrap();
     stmt.execute([
@@ -82,23 +82,30 @@ async fn action(param: web::Path<(String, String)>) -> HttpResponse {
         current_unix.to_string()
     ]).unwrap();
 
-    if current_unix > end_last_checked + CHECK_INTERVAL {
-        let updated_down = match reqwest::get(&end_url).await {
-            Ok(response) => {
-                !response.status().is_success()
-            },
-            Err(_) => {
-                true
-            },
-        };
-
-        let mut stmt = db.prepare("UPDATE sites SET 'down' = ?1, 'last_checked' = ?2 WHERE site = ?3").unwrap();
-        stmt.execute([
-            updated_down.to_string(), 
-            current_unix.to_string(),
-            end_site.clone()
-        ]).unwrap();
-    }
+    //hack: pls fix better solution
+    let update_site = end_site.clone();
+    let update_url = end_url.clone();
+    tokio::spawn(async move {
+        if current_unix > end_last_checked + CHECK_INTERVAL {
+            let updated_down = match reqwest::get(&update_url).await {
+                Ok(response) => {
+                    !response.status().is_success()
+                },
+                Err(_) => {
+                    true
+                },
+            };
+    
+            let db = Connection::open("sites.db").unwrap();
+    
+            let mut stmt = db.prepare("UPDATE sites SET 'down' = ?1, 'last_checked' = ?2 WHERE site = ?3").unwrap();
+            stmt.execute([
+                updated_down.to_string(), 
+                current_unix.to_string(),
+                update_site.clone()
+            ]).unwrap();
+        }
+    });
 
     if end_down {
         return HttpResponse::Found()
