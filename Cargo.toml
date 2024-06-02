@@ -6,10 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4.4.0"
-tokio = { version = "1.33.0", features = ["full"] }
+actix-web = "4.6.0"
+tokio = { version = "1.38.0", features = ["full"] }
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 rand = "0.8.5"
-serde_json = "1.0.107"
-serde = { version = "1.0.197", features = ["derive"] }
-reqwest = "0.12.1"
+serde_json = "1.0.117"
+serde = { version = "1.0.203", features = ["derive"] }
+reqwest = "0.12.4"
+chrono = "0.4.38"

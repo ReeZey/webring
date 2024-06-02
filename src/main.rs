@@ -3,13 +3,14 @@ use rand::Rng;
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::{io::Result, time::{SystemTime, UNIX_EPOCH}};
+use chrono::prelude::*;
 
-const HOST_URL: &str = "http://localhost:666";//"https://ring.reez.it";
-const CHECK_INTERVAL: u128 = 60_1000 * 60;
+const HOST_URL: &str = "https://ring.reez.it";
+const CHECK_INTERVAL: u128 = 1000 * 60 * 60; //once every hour
 
 #[get("/{name}/{action}")]
 async fn action(param: web::Path<(String, String)>) -> HttpResponse {
-    let (start_site, action) = param.into_inner();
+    let (start_site, site_action) = param.into_inner();
 
     let db = Connection::open("sites.db").unwrap();
 
@@ -29,7 +30,7 @@ async fn action(param: web::Path<(String, String)>) -> HttpResponse {
 
     //do them actions baby
     let mut next_id;
-    match action.as_str() {
+    match site_action.as_str() {
         "next" => {
             next_id = match sites_count > current_id as usize {
                 true => current_id + 1,
@@ -64,56 +65,60 @@ async fn action(param: web::Path<(String, String)>) -> HttpResponse {
     let mut query = stmt.query([next_id]).unwrap();
 
     let row = query.next().unwrap().unwrap();
-    let end_site: String = row.get_unwrap(0);
-    let end_url: String = row.get_unwrap(1);
-    let end_down: bool = row.get_unwrap::<usize, String>(2).parse().unwrap();
-    let end_last_checked: u128 = row.get_unwrap::<usize, String>(3).parse::<u128>().unwrap();
+    let target_site: String = row.get_unwrap(0);
+    let target_url: String = row.get_unwrap(1);
+    let mut target_down: bool = row.get_unwrap::<usize, String>(2).parse().unwrap();
+    let target_last_check: u128 = row.get_unwrap::<usize, String>(3).parse::<u128>().unwrap();
 
-    
+    let now = Utc::now();
     //check if site is alive
-    println!("[{}] {} > {}", action, start_site, end_site);
-    
+    println!("[{}] {} > {} [{}]", now.format("%Y-%m-%d %H:%M:%S"), start_site, target_site, site_action);
+
     let current_unix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+
+    let current_unix_copy = current_unix.clone();
+    let target_site_copy = target_site.clone();
+    let site_action_copy = site_action.clone();
+
     let mut stmt = db.prepare("INSERT INTO logs ('from', 'to', 'using', 'timestamp') VALUES (?1, ?2, ?3, ?4)").unwrap();
     stmt.execute([
         start_site, 
-        end_site.clone(), 
-        action.clone(), 
-        current_unix.to_string()
+        target_site_copy.clone(), 
+        site_action_copy.clone(), 
+        current_unix_copy.to_string()
     ]).unwrap();
 
-    //hack: pls fix better solution
-    let update_site = end_site.clone();
-    let update_url = end_url.clone();
-    tokio::spawn(async move {
-        if current_unix > end_last_checked + CHECK_INTERVAL {
-            let updated_down = match reqwest::get(&update_url).await {
-                Ok(response) => {
-                    !response.status().is_success()
-                },
-                Err(_) => {
-                    true
-                },
-            };
-    
-            let db = Connection::open("sites.db").unwrap();
-    
+    if current_unix > target_last_check + CHECK_INTERVAL {
+        let is_down = match reqwest::get(&target_url).await {
+            Ok(response) => {
+                !response.status().is_success()
+            },
+            Err(_) => {
+                true
+            },
+        };
+
+        if is_down != target_down {
             let mut stmt = db.prepare("UPDATE sites SET 'down' = ?1, 'last_checked' = ?2 WHERE site = ?3").unwrap();
             stmt.execute([
-                updated_down.to_string(), 
+                is_down.to_string(), 
                 current_unix.to_string(),
-                update_site.clone()
+                target_site.clone()
             ]).unwrap();
-        }
-    });
 
-    if end_down {
-        return HttpResponse::Found()
-            .append_header(("Location", format!("{}/{}/{}", HOST_URL, &end_site, &action)))
-            .body(format!("{} down...", &end_site));
+            target_down = is_down;
+        }
     }
 
-    return HttpResponse::Found().append_header(("Location", end_url.clone())).body(format!("next stop: {}", end_url));
+    if target_down {
+        println!("{} is down", target_site);
+
+        return HttpResponse::Found()
+            .append_header(("Location", format!("{}/{}/{}", HOST_URL, &target_site, &site_action)))
+            .body(format!("{} down...", &target_site));
+    }
+
+    return HttpResponse::Found().append_header(("Location", target_url.clone())).body(format!("next stop: {}", target_url));
 }
 
 #[get("/links")]
