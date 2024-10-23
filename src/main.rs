@@ -87,9 +87,13 @@ async fn action(param: web::Path<(String, String)>) -> HttpResponse {
         site_action_copy.clone(), 
         current_unix_copy.to_string()
     ]).unwrap();
-
+    
     if current_unix > target_last_check + CHECK_INTERVAL {
-        let is_down = match reqwest::get(&target_url).await {
+        let sender = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build().unwrap();
+
+        let is_down = match sender.get(&target_url).send().await {
             Ok(response) => {
                 !response.status().is_success()
             },
@@ -98,16 +102,12 @@ async fn action(param: web::Path<(String, String)>) -> HttpResponse {
             },
         };
 
-        if is_down != target_down {
-            let mut stmt = db.prepare("UPDATE sites SET 'down' = ?1, 'last_checked' = ?2 WHERE site = ?3").unwrap();
-            stmt.execute([
-                is_down.to_string(), 
-                current_unix.to_string(),
-                target_site.clone()
-            ]).unwrap();
-
-            target_down = is_down;
-        }
+        let mut stmt = db.prepare("UPDATE sites SET 'down' = ?1, 'last_checked' = ?2 WHERE site = ?3").unwrap();
+        stmt.execute([
+            is_down.to_string(), 
+            current_unix.to_string(),
+            target_site.clone()
+        ]).unwrap();
     }
 
     if target_down {
